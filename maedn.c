@@ -435,12 +435,15 @@ get_mode_str(mode_type_t t, int m)
 
 
 // In this function we apply all implicit (!) gs.mode-switch rules
+// Steps (there can only be one path in the hierarchy for each branch):
+// 1. Clear old path
+// 2. Set new path
 static int
 set_mode(mode_type_t t, int m)
 {
-  //XXX Einbauen, so dass er rekursiz resettet in alle zweite hoch - aber wohl nur wenn die modi komplizierter werden und sich die Zweige in mehr als zwei Ebenen verzweigen
   int tgold = 0, trold = 0, tnew = 0;
   int mgold = 0, mrold = 0, mnew = 0;
+  int tgold_del = 0;
 
   tgold = get_game_mode_type();
   trold = get_rec_mode_type();
@@ -448,15 +451,29 @@ set_mode(mode_type_t t, int m)
   mrold = get_mode(trold);
   tnew = t;
   mnew = m;
+  tgold_del = get_game_mode_type();
 
-  // Backwards through the hierarchy
+  if(t == MODE_TYPE_GAME || t == MODE_TYPE_GAME_PLAY) {
+    // Unset old path - backwards through the hierarchy
+    // ../.. level 2
+    if(tgold_del == MODE_TYPE_GAME_PLAY) {
+      gs.play_game_mode = MODE_GAME_PLAY_NONE;
+      tgold_del = MODE_TYPE_GAME;
+    }
+    // ../.. level 1
+    if(tgold_del == MODE_TYPE_GAME) {
+      gs.game_mode = MODE_GAME_NONE;
+      //tgold_del = MODE_TYPE_GAME;
+    }
+  }
+
+  // Set new path - backwards through the hierarchy
   // ../.. level 2
   if(t == MODE_TYPE_GAME_PLAY) {
     gs.play_game_mode = m;
     t = MODE_TYPE_GAME;
     m = MODE_GAME_PLAY;
   }
-
   // .. level 1
   if(t == MODE_TYPE_GAME) {
     // Set
@@ -466,8 +483,6 @@ set_mode(mode_type_t t, int m)
     // Reset
 //    gs.rec_mode = MODE_REC_NONE;
   }
-
-
   if(t == MODE_TYPE_REC) {
     // Set
     gs.rec_mode = m;
@@ -476,7 +491,6 @@ set_mode(mode_type_t t, int m)
     // Reset
 //    gs.game_mode = MODE_GAME_NONE;
   }
-
   // .. level 0
   if(t == MODE_TYPE_BASIC) {
     // Set
@@ -1066,7 +1080,7 @@ get_goal_fields_free()
   return res;
 }
 
-//XXX figure_movable vom einfachen int array in ein struktur array aufblasen und u.a. mmerken, was ohnehin hier schon ermittelt wird und zwar das ziel, falls mit dem jeweiligen männchen gezogen wird -> das würde auch die Entscheidungsfindung der KI erleichtern
+//XXX figure_movable vom einfachen int array in eine struktur array aufblasen und u.a. mmerken, was ohnehin hier schon ermittelt wird und zwar das ziel, falls mit dem jeweiligen männchen gezogen wird -> das würde auch die Entscheidungsfindung der KI erleichtern
 static int
 check_figure_movable()
 {
@@ -1225,7 +1239,19 @@ gs.player[0].f[3].t = FIELD_TYPE_NORMAL;
 gs.player[0].f[3].i = 39;
 */
 
-  //gs.number = 6;
+  /*
+  gs.cp = 0;
+  gs.number = 1;
+
+  gs.player[0].f[0].t = FIELD_TYPE_GOAL;
+  gs.player[0].f[0].i = 3;
+  gs.player[0].f[1].t = FIELD_TYPE_GOAL;
+  gs.player[0].f[1].i = 2;
+  gs.player[0].f[2].t = FIELD_TYPE_GOAL;
+  gs.player[0].f[2].i = 1;
+  gs.player[0].f[3].t = FIELD_TYPE_NORMAL;
+  gs.player[0].f[3].i = 39;
+*/
 
   // Roll three times if there's no other option
   if(gs.force_start_cnt == -1 && force_start())
@@ -1478,15 +1504,6 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
       }
       break;
 
-    case GDK_KEY_5:
-    case GDK_KEY_6:
-    case GDK_KEY_7:
-    case GDK_KEY_8:
-      num = event->keyval - GDK_KEY_5;
-      for(i = 0; i < 4; i++)
-        printf("p %d (i = %d, t = %d)\n", num + 1, gs.player[num].f[i].i, gs.player[num].f[i].t);
-      break;
-
     case GDK_KEY_Return:
       if(gs.game_mode == MODE_GAME_CHOOSE_PLAYER) {
         if(gs.rec_mode == MODE_REC_RELOAD || gs.rec_mode == MODE_REC_REPLAY) {
@@ -1523,11 +1540,31 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
           move(num);
           refresh();
         } else if(gs.player[gs.cp].t == PLAYER_TYPE_COMPUTER) {
-          for(i = 0; i < 4; i++) { // XXX Hier muss die KI rein
-            if(gs.figure_movable[i]) {
-              move(i);
-              refresh();
-              break;
+          if(gs.cp >= 0 && gs.cp <= 1) {
+            int cnt = 0;
+            for(i = 0; i < 4; i++) {
+              if(gs.figure_movable[i])
+                cnt++;
+            }
+            cnt = rand() % cnt;
+            for(i = 0; i < 4; i++) { // XXX Hier muss die KI rein - werfen möglich bewertung der aktuellen stellung im vergleich zur möglichen zukünftigen (wurfgefahr), ins ziel einrücken, im ziel weiter bzw. ganz nach vorne rücken, damit man ggf. wieder drei mal würfeln kann
+              if(gs.figure_movable[i]) {
+                if(cnt == 0) {
+                  move(i);
+                  refresh();
+                  break;
+                } else {
+                  cnt--;
+                }
+              }
+            }
+          } else {
+            for(i = 0; i < 4; i++) { // XXX Hier muss die KI rein
+              if(gs.figure_movable[i]) {
+                move(i);
+                refresh();
+                break;
+              }
             }
           }
         }
