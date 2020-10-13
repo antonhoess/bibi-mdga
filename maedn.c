@@ -1,3 +1,5 @@
+//XXX KI coden?
+
 #include <cairo.h>
 #include <canberra.h>
 #include <stdio.h>
@@ -6,12 +8,13 @@
 #include <time.h>
 #include <math.h>
 
-
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 
-#define FIELD_DIM 30
-#define AREA_DIM  11
+
+#define FIELD_DIM       30
+#define AREA_DIM        11
+#define SAVED_MOVES_CNT 10000
 
 
 typedef struct point_s {
@@ -43,14 +46,43 @@ typedef enum {
 } field_type_t;
 
 typedef enum {
-  GAME_MODE_INIT,
-  GAME_MODE_CHOOSE_PLAYER,
-  GAME_MODE_PLAY_ROLL,
-  GAME_MODE_PLAY_MOVE,
-  GAME_MODE_PLAY_CHANGE_PLAYER,
-  GAME_MODE_PLAY_FINISHED,
-  GAME_MODE_CNT,
+  MODE_INIT,
+  MODE_REC,
+  MODE_GAME,
+  MODE_CNT,
+} basic_mode_t;
+
+typedef enum {
+  MODE_REC_NONE,
+  MODE_REC_RECORD,
+  MODE_REC_REPLAY,
+  MODE_REC_CNT,
+} rec_mode_t;
+
+typedef enum {
+  MODE_GAME_NONE,
+  MODE_GAME_INIT,
+  MODE_GAME_CHOOSE_PLAYER,
+  MODE_GAME_PLAY,
+  MODE_GAME_FINISHED,
+  MODE_GAME_CNT,
 } game_mode_t;
+
+typedef enum {
+  MODE_GAME_PLAY_NONE,
+  MODE_GAME_PLAY_ROLL,
+  MODE_GAME_PLAY_MOVE,
+  MODE_GAME_PLAY_CHANGE_PLAYER,
+  MODE_GAME_PLAY_CNT,
+} play_game_mode_t;
+
+typedef enum {
+  MODE_TYPE_BASIC,
+  MODE_TYPE_REC,
+  MODE_TYPE_GAME,
+  MODE_TYPE_GAME_PLAY,
+  MODE_TYPE_CNT,
+} mode_type_t;
 
 typedef struct field_s {
   int x;
@@ -70,8 +102,11 @@ typedef struct player_s {
   int playing;
 } player_t;
 
+basic_mode_t mode = MODE_INIT;
+rec_mode_t rec_mode = MODE_REC_NONE;
+game_mode_t game_mode = MODE_GAME_NONE;
+play_game_mode_t play_game_mode = MODE_GAME_PLAY_NONE;
 
-game_mode_t mode;
 field_t fields[(AREA_DIM - 1) * 4];
 field_t fields_parking[PLAYER_COLOR_CNT][4];
 field_t fields_goal[PLAYER_COLOR_CNT][4];
@@ -84,6 +119,10 @@ int start_roll_cnt = 0;
 int force_start_cnt = -1;
 int figure_movable[4];
 
+int rmode = 0; // record / replay: 0 = off, 1 = active // Can only set active bevor starting the game and cannot be set active after setting it off durgin the game
+int saved_moves[SAVED_MOVES_CNT]; // Moves with following types (0 = empty, -4..-1 = figure number to move, 1..4 = roll number)
+int saved_moves_cnt = 0;
+
 static void
 do_drawing(cairo_t *);
 
@@ -94,6 +133,247 @@ refresh();
 GtkWidget *window = NULL;
 GtkWidget *darea = NULL;
 point_t ws; // Window-size
+
+
+static mode_type_t
+get_mode_type()
+{
+  // Backwards through the hierarchy
+  // ../.. level 2
+  if(play_game_mode != MODE_GAME_PLAY_NONE)
+    return MODE_TYPE_GAME_PLAY;
+  // ../.. level 1
+  else if(game_mode != MODE_GAME_NONE)
+    return MODE_TYPE_GAME;
+  // ../.. level 1
+  else if(rec_mode != MODE_REC_NONE)
+    return MODE_TYPE_REC;
+  // ../.. level 0
+  else
+    return MODE_TYPE_BASIC;
+
+  return -1;
+}
+
+
+static int
+get_mode(mode_type_t t)
+{
+  switch(t) {
+    case MODE_TYPE_GAME_PLAY:
+      return play_game_mode;
+      break;
+
+    case MODE_TYPE_GAME:
+      return game_mode;
+      break;
+
+    case MODE_TYPE_REC:
+      return rec_mode;
+      break;
+
+    case MODE_TYPE_BASIC:
+      return mode;
+      break;
+
+    case MODE_TYPE_CNT:
+      break;
+  }
+
+  return -1;
+}
+
+
+static char *
+get_mode_type_str(mode_type_t t)
+{
+  char *str = NULL;
+
+  switch(t) {
+    case MODE_TYPE_BASIC:
+      str = "MODE_TYPE_BASIC";
+      break;
+
+    case MODE_TYPE_REC:
+      str = "MODE_TYPE_REC";
+
+      break;
+    case MODE_TYPE_GAME:
+      str = "MODE_TYPE_GAME";
+      break;
+
+    case MODE_TYPE_GAME_PLAY:
+      str = "MODE_TYPE_GAME_PLAY";
+      break;
+
+    case MODE_TYPE_CNT:
+      str = "";
+  }
+
+  return str;
+}
+
+
+static char *
+get_mode_str(mode_type_t t, int m)
+{
+  char *str = NULL;
+
+  switch(t) {
+    case MODE_TYPE_BASIC:
+      switch((basic_mode_t)m) {
+        case MODE_INIT:
+          str = "MODE_INIT";
+          break;
+
+        case MODE_REC:
+          str = "MODE_REC";
+          break;
+
+        case MODE_GAME:
+          str = "MODE_GAME";
+          break;
+
+        case MODE_CNT:
+          str = "";
+          break;
+      }
+      break;
+
+    case MODE_TYPE_REC:
+      switch((rec_mode_t)m) {
+        case MODE_REC_NONE:
+          str = "MODE_REC_NONE";
+          break;
+
+        case MODE_REC_RECORD:
+          str = "MODE_REC_RECORD";
+          break;
+
+        case MODE_REC_REPLAY:
+          str = "MODE_REC_REPLAY";
+          break;
+
+        case MODE_REC_CNT:
+          str = "";
+          break;
+      }
+      break;
+
+    case MODE_TYPE_GAME:
+      switch((game_mode_t)m) {
+        case MODE_GAME_NONE:
+          str = "MODE_GAME_NONE";
+          break;
+
+        case MODE_GAME_INIT:
+          str = "MODE_GAME_INIT";
+          break;
+
+        case MODE_GAME_CHOOSE_PLAYER:
+          str = "MODE_GAME_CHOOSE_PLAYER";
+          break;
+
+        case MODE_GAME_PLAY:
+          str = "MODE_GAME_PLAY";
+          break;
+
+        case MODE_GAME_FINISHED:
+          str = "MODE_GAME_FINISHED";
+          break;
+
+        case MODE_GAME_CNT:
+          str = "";
+          break;
+      }
+      break;
+
+    case MODE_TYPE_GAME_PLAY:
+      switch((play_game_mode_t)m) {
+        case MODE_GAME_PLAY_NONE:
+          str = "MODE_GAME_PLAY_NONE";
+          break;
+
+        case MODE_GAME_PLAY_ROLL:
+          str = "MODE_GAME_PLAY_ROLL";
+          break;
+
+        case MODE_GAME_PLAY_MOVE:
+          str = "MODE_GAME_PLAY_MOVE";
+          break;
+
+        case MODE_GAME_PLAY_CHANGE_PLAYER:
+          str = "MODE_GAME_PLAY_CHANGE_PLAYER";
+          break;
+
+        case MODE_GAME_PLAY_CNT:
+          str = "";
+          break;
+      }
+      break;
+
+    case MODE_TYPE_CNT:
+      str = "";
+      break;
+  }
+
+  return str;
+}
+
+
+// In this function we apply all implicit (!) mode-switch rules
+static int
+set_mode(mode_type_t t, int m)
+{
+  //XXX Einbauen, so dass er rekursiz resettet in alle zweite hoch - aber wohl nur wenn die modi komplizierter werden und sich die Zweige in mehr als zwei Ebenen verzweigen
+  int told = 0, tnew = 0;
+  int mold = 0, mnew = 0;
+
+  told = get_mode_type();
+  mold = get_mode(told);
+  tnew = t;
+  mnew = m;
+
+  // Backwards through the hierarchy
+  // ../.. level 2
+  if(t == MODE_TYPE_GAME_PLAY) {
+    play_game_mode = m;
+    t = MODE_TYPE_GAME;
+    m = MODE_GAME_PLAY;
+  }
+
+  // .. level 1
+  if(t == MODE_TYPE_GAME) {
+    // Set
+    game_mode = m;
+    t = MODE_TYPE_BASIC;
+    m = MODE_GAME;
+    // Reset
+    rec_mode = MODE_REC_NONE;
+  }
+
+  if(t == MODE_TYPE_REC) {
+    // Set
+    rec_mode = m;
+    t = MODE_TYPE_BASIC;
+    m = MODE_REC;
+    // Reset
+    game_mode = MODE_GAME_NONE;
+  }
+
+  // .. level 0
+  if(t == MODE_TYPE_BASIC) {
+    // Set
+    mode = m;
+  }
+
+  if(told != tnew || mold != mnew) {
+    printf("Mode changes: (%-20s | %-25s)\n", get_mode_type_str(told), get_mode_str(told, mold));
+    printf("(%d|%d)->(%d|%d)  (%-20s | %-25s)\n\n", told, mold, tnew, mnew, get_mode_type_str(tnew), get_mode_str(tnew, mnew));
+  }
+
+  return 0;
+}
 
 
 static void
@@ -254,7 +534,7 @@ init_for_new_game()
 
   reset_figure_movable();
 
-  mode = GAME_MODE_CHOOSE_PLAYER;
+  set_mode(MODE_TYPE_GAME, MODE_GAME_CHOOSE_PLAYER);
 }
 
 
@@ -333,7 +613,7 @@ draw_cube(cairo_t *cr, int number)
   float re = d / 10.0; // Diameter eyes
 
 
-  if(!(mode == GAME_MODE_PLAY_ROLL || mode == GAME_MODE_PLAY_MOVE || mode == GAME_MODE_PLAY_CHANGE_PLAYER))
+  if(!(play_game_mode == MODE_GAME_PLAY_ROLL || play_game_mode == MODE_GAME_PLAY_MOVE || play_game_mode == MODE_GAME_PLAY_CHANGE_PLAYER))
     return;
 
   cairo_save(cr);
@@ -466,26 +746,24 @@ do_drawing(cairo_t *cr)
       continue;
 
     for(i = 0; i < 4; i++) {
-      printf("draw_figure: %d, %d, %d, %d\n", figure_movable[0], figure_movable[1], figure_movable[2], figure_movable[3]);
       draw_figure(cr, &player[p].f[i], i);
     }
   }
 
   // Background whitening
-  if(mode == GAME_MODE_CHOOSE_PLAYER || mode == GAME_MODE_PLAY_FINISHED) {
+  if(game_mode == MODE_GAME_CHOOSE_PLAYER || game_mode == MODE_GAME_FINISHED) {
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.5);
     cairo_rectangle(cr, 0, 0, ws.x, ws.y);
     cairo_fill(cr);
   }
 
   // Draw figures
-  if(mode == GAME_MODE_CHOOSE_PLAYER) {
+  if(game_mode == MODE_GAME_CHOOSE_PLAYER) {
     for(p = 0; p < PLAYER_COLOR_CNT; p++) {
       if(!player[p].playing)
         continue;
 
       for(i = 0; i < 4; i++) {
-        printf("draw_figure: %d, %d, %d, %d\n", figure_movable[0], figure_movable[1], figure_movable[2], figure_movable[3]);
         draw_figure(cr, &player[p].f[i], i);
       }
     }
@@ -495,12 +773,21 @@ do_drawing(cairo_t *cr)
   draw_cube(cr, number);
 
   // Draw text for some cases
-  if(mode == GAME_MODE_CHOOSE_PLAYER) {
+  if(game_mode == MODE_GAME_CHOOSE_PLAYER) {
     cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
     print_centered_text(window, cr, "Spieler auswählen\n(ein-/ausschalten)\ndurch Drücken von 1..4:", FIELD_DIM * 0.5);
-  } else if(mode == GAME_MODE_PLAY_FINISHED) {
-    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 1.5);
+  } else if(game_mode == MODE_GAME_FINISHED) {
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 1.0);
     print_centered_text(window, cr, "Spiel beendet!\n\n Gratulation!", FIELD_DIM * 1.0);
+  }
+
+  // Record / replay info
+  if(rmode == 1) {
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.2);
+    print_centered_text(window, cr, "RECORD", FIELD_DIM * 2.0);
+  } else if(rmode == 2) {
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.2);
+    print_centered_text(window, cr, "REPLAY", FIELD_DIM * 2.0);
   }
 }
 
@@ -517,7 +804,7 @@ rotate_player()
  }
 
   number = 0;
-  mode = GAME_MODE_PLAY_ROLL;
+  set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
 }
 
 
@@ -554,7 +841,6 @@ get_num_figures_parking()
 
   return cnt;
 }
-
 
 
 static int
@@ -609,21 +895,17 @@ check_field_occupied(int fi, int *p, int *f, int pi) // Field index, i = player-
           *f = _f;
 
         if(_p == cp) {
-          printf("cfo (ret=1) fi=%d, p=%d, f=%d\n", fi, _p, _f);
           return 1;
         } else {
-          printf("cfo (ret=2) fi=%d, p=%d, f=%d\n", fi, _p, _f);
           return 2;
         }
       }
     }
   }
 
-  printf("cfo (ret=0) fi=%d, p=%d, f=%d\n", fi, _p, _f);
   return 0;
 }
 
-//XXX KI coden?
 static int
 check_player_won()
 {
@@ -691,28 +973,22 @@ check_figure_movable()
 
   // Start case- we return here, because we have to force this case
   if(num_figures_parking > 0) {
-    printf("cfm 01\n");
     if(num_figures_parking == 4) {
       if(number == 6) {
-        printf("cfm 02\n");
         for(i = 0; i < 4; i++) {
           figure_movable[i] = 1;
           ret = 1;
         }
-        printf("cfm 03\n");
       }
     } else { // 0 < num_figures_parking < 4
       if(check_start_occupied()) {
-        printf("cfm 04\n");
         fi = cp * (AREA_DIM - 1);
 
         for(i = 0; i < 4 - num_figures_parking; i++) {
           if(check_field_occupied(fi, &p, &f, -1) == 1) {
-            printf("cfm 05\n");
             fi_ori = fi;
             fi = (player[p].f[f].i + number) % ((AREA_DIM - 1) * 4);
           } else {
-            printf("cfm 06\n");
             figure_movable[get_figure_index(cp, fi_ori)] = 1;
             ret = 1;
             break;
@@ -720,12 +996,10 @@ check_figure_movable()
         }
       } else { // Start field not occupied
         if(number == 6) {
-          printf("cfm 07\n");
           for(k = 0; k < 4; k++) {
             if(player[cp].f[k].t == FIELD_TYPE_PARKING) {
               figure_movable[k] = 1;
               ret = 1;
-              printf("cfm 08\n");
             }
           }
           ret = 1;
@@ -738,26 +1012,20 @@ check_figure_movable()
   if(ret == 0) {
     // In-Goal case
     for(i = 0; i < 4; i++) {
-      printf("cfm 13\n");
       fig = &player[cp].f[i];
 
       if(fig->t == FIELD_TYPE_GOAL) {
-        printf("cfm 14\n");
         if(fig->i + number < 4) {
-          printf("cfm 15\n");
           tmp = 1;
 
           for(k = 0; k < 4; k++) {
-            printf("cfm 16\n");
             if(k != i && player[cp].f[k].t == FIELD_TYPE_GOAL && player[cp].f[k].i > fig->i && player[cp].f[k].i <= fig->i + number) {
-              printf("cfm 17\n");
               tmp = 0;
               break;
             }
           }
 
           if(tmp == 1) {
-            printf("cfm 18\n");
             figure_movable[i] = 1;
             ret = 1;
           }
@@ -768,7 +1036,6 @@ check_figure_movable()
     // Normal case
     for(i = 0; i < 4; i++) {
       int n2n = 0;
-      printf("cfm 19\n");
       fig = &player[cp].f[i];
       tmp = (AREA_DIM - 1) * _cp;
 
@@ -783,22 +1050,16 @@ check_figure_movable()
         }
 
         if(n2n) {
-          printf("cfm 20\n");
           fi = (fig->i + number) % ((AREA_DIM - 1) * 4); // Possible new position
-          printf("%d\n", fi);
 
           if(check_field_occupied(fi, &p, &f, -1) != 1) {
-            printf("cfm 21\n");
             figure_movable[i] = 1;
             ret = 1;
           }
         } else if((fig->i >= tmp && fig->i + number > tmp + gff) || (fig->i < tmp && fig->i + number <= tmp + gff)) { // From a normal field to a goal field
-          printf("cfm 20\n");
           fi = (fig->i + number) % ((AREA_DIM - 1) * 4); // Possible new position
-          printf("%d\n", fi);
 
           if(fi - (AREA_DIM - 1) * cp < gff) {
-            printf("cfm 21\n");
             figure_movable[i] = 1;
             ret = 1;
           }
@@ -819,16 +1080,17 @@ roll()
   int moved = 0;
 
   number = (rand() % 6) + 1;
-//number = 1; //XXX
-/*
-player[0].f[0].t = FIELD_TYPE_NORMAL;
-player[0].f[0].i = 0;
-player[1].f[0].t = FIELD_TYPE_NORMAL;
-player[1].f[0].i = 1;
-*/
+
+  if(rmode == 1)
+    saved_moves[saved_moves_cnt++] = number;
+  else if(rmode == 2)
+    number = saved_moves[saved_moves_cnt++];
+
+//XXX
+
 /*
 cp = 1;
-number = 6; //XXX
+number = 6;
 
 player[0].f[0].t = FIELD_TYPE_NORMAL;
 player[0].f[0].i = 16;
@@ -845,35 +1107,19 @@ player[1].f[0].t = FIELD_TYPE_NORMAL;
 player[1].f[0].i = 14;
 */
 
-static int ggg = 0;
-
-if(ggg == 0) {
-cp = 3;
+/*
+cp = 0;
 number = 6;
 
-player[1].f[1].t = FIELD_TYPE_NORMAL;
-player[1].f[1].i = 23;
-
-player[2].f[0].t = FIELD_TYPE_NORMAL;
-player[2].f[0].i = 39;
-
-
-player[3].f[0].t = FIELD_TYPE_NORMAL;
-player[3].f[0].i = 14;
-player[3].f[1].t = FIELD_TYPE_NORMAL;
-player[3].f[1].i = 30;
-player[3].f[2].t = FIELD_TYPE_NORMAL;
-player[3].f[2].i = 35;
-player[3].f[3].t = FIELD_TYPE_PARKING;
-player[3].f[3].i = 3;
-ggg = 1;
-}
+player[0].f[0].t = FIELD_TYPE_NORMAL;
+player[0].f[0].i = 3;
+*/
 
   // Roll three times if there's no other option
   if(force_start_cnt == -1 && force_start())
     force_start_cnt = 3;
 
-  mode = GAME_MODE_PLAY_MOVE;
+  set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_MOVE);
 
   if(number == 6) {
     force_start_cnt = -1;
@@ -882,18 +1128,18 @@ ggg = 1;
       force_start_cnt--;
       if(force_start_cnt == 0) {
         force_start_cnt = -1;
-        mode = GAME_MODE_PLAY_CHANGE_PLAYER;
+        set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_CHANGE_PLAYER);
       } else {
-        mode = GAME_MODE_PLAY_ROLL;
+        set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
       }
     }
   }
 
-  if(mode == GAME_MODE_PLAY_MOVE && check_figure_movable() == 0) {
+  if(play_game_mode == MODE_GAME_PLAY_MOVE && check_figure_movable() == 0) {
     if(number == 6)
-      mode = GAME_MODE_PLAY_ROLL;
+      set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
     else
-      mode = GAME_MODE_PLAY_CHANGE_PLAYER;
+      set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_CHANGE_PLAYER);
   }
 }
 
@@ -914,37 +1160,37 @@ move(int figure_index)
   if(fig->t == FIELD_TYPE_PARKING) {
     fig->t = FIELD_TYPE_NORMAL;
     fig->i = (AREA_DIM - 1) * cp;
+    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_MoveParkingNormal.ogg", NULL);
   } else if(fig->t == FIELD_TYPE_NORMAL) {
     // NORMAL ->
-    printf("%d ", fig->i);
     if(fig->i < (AREA_DIM - 1) * _cp && fig->i + number >= (AREA_DIM - 1) * _cp) { // -> GOAL
       fig->i = (fig->i + number) % ((AREA_DIM - 1) * _cp);
       fig->t = FIELD_TYPE_GOAL;
-      printf("n->g");
+      ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_MoveNormalGoal.ogg", NULL);
     } else { // -> NORMAL
       fig->i = (fig->i + number) % ((AREA_DIM - 1) * 4);
-      printf("n->n");
+      ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Move.ogg", NULL);
     }
-    printf(" %d\n", fig->i);
   } else if(fig->t == FIELD_TYPE_GOAL) {
     // GOAL ->
     fig->i += number;
+    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Move.ogg", NULL);
   }
 
   if(fig->t == FIELD_TYPE_NORMAL) {
-      printf("werfen\n");
+  ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_KickEnemy.ogg", NULL);
     if(check_field_occupied(fig->i, &p, &f, cp) == 2) {
-      printf("fig->i = %d", fig->i);
       player[p].f[f].i = get_figure_index(p, fig->i);
       player[p].f[f].t = FIELD_TYPE_PARKING;
     }
   }
 
   if(check_player_won()) {
-    mode = GAME_MODE_PLAY_FINISHED;
+    set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_FINISHED);
+    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_GameFinished.ogg", NULL);
   } else {
    if(number == 6)
-      mode = GAME_MODE_PLAY_ROLL;
+      set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
     else
       rotate_player();
   }
@@ -977,7 +1223,7 @@ clicked(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
 static void
 on_window_show (GtkWidget *widget, gpointer user_data)
 {
-//XXX  ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Splash.ogg", NULL);
+  ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Splash.ogg", NULL);
 }
 
 
@@ -997,6 +1243,38 @@ set_window_size()
 }
 
 
+static int
+save_moves_to_file()
+{
+  FILE *fp = NULL;
+
+  if(!(fp = fopen("moves.bin", "wb"))) {
+    return -1;
+  } else {
+    fwrite(saved_moves, sizeof(saved_moves), 1, fp);
+    fclose(fp);
+  }
+
+  return 0;
+}
+
+
+static int
+read_moves_from_file()
+{
+  FILE *fp = NULL;
+
+  if(!(fp = fopen("moves.bin", "r"))) {
+    return -1;
+  } else {
+    fread(saved_moves, sizeof(saved_moves), 1, fp);
+    fclose(fp);
+  }
+
+  return 0;
+}
+
+
 gboolean
 on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 {
@@ -1009,16 +1287,45 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
   int num_set = 0;
 
   switch (event->keyval) {
+    case GDK_r:
+      if(game_mode == MODE_GAME_CHOOSE_PLAYER) {
+        rmode = (rmode + 1) % 3;
+        saved_moves_cnt = 0;
+        refresh();
+      }
+      break;
+
+    case GDK_s:
+      if(game_mode != MODE_GAME_CHOOSE_PLAYER) {
+        if(rmode == 1) {
+          save_moves_to_file();
+          printf("save_moves_to_file()\n");
+        }
+      } else {
+        if(rmode == 2) {
+          read_moves_from_file();
+          printf("read_moves_from_file()\n");
+        }
+      }
+      break;
+
     case GDK_KEY_1:
     case GDK_KEY_2:
     case GDK_KEY_3:
     case GDK_KEY_4:
       num = event->keyval - GDK_KEY_1;
-      if(mode == GAME_MODE_CHOOSE_PLAYER) {
+      if(game_mode == MODE_GAME_CHOOSE_PLAYER) {
         player[num].playing = !player[num].playing;
         refresh();
-      } else if(mode == GAME_MODE_PLAY_MOVE) {
+      } else if(play_game_mode == MODE_GAME_PLAY_MOVE) {
         if(figure_movable[num]) {
+/*
+          if(rmode == 1)
+            saved_moves[saved_moves_cnt++] = -num;
+          else
+            num = -saved_moves[saved_moves_cnt++];
+*/
+
           move(num);
           refresh();
         }
@@ -1035,7 +1342,7 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
       break;
 
     case GDK_KEY_Return:
-      if(mode == GAME_MODE_CHOOSE_PLAYER) {
+      if(game_mode == MODE_GAME_CHOOSE_PLAYER) {
         for(i = 0; i < 4; i++) {
           if(player[i].playing)
             num_set++;
@@ -1049,27 +1356,27 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
             }
           }
           number = -1;
-          mode = GAME_MODE_PLAY_ROLL;
+          set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
           refresh();
+          ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_GameStart.ogg", NULL);
         }
-      } else if(mode == GAME_MODE_PLAY_ROLL) {
+      } else if(play_game_mode == MODE_GAME_PLAY_ROLL) {
         roll();
+        ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Roll.ogg", NULL);
         refresh();
-      } else if(mode == GAME_MODE_PLAY_CHANGE_PLAYER) {
+      } else if(play_game_mode == MODE_GAME_PLAY_CHANGE_PLAYER) {
         number = 0;
         rotate_player();
-        mode = GAME_MODE_PLAY_ROLL;
+        set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
         refresh();
-      } else if(mode == GAME_MODE_PLAY_FINISHED) {
+      } else if(game_mode == MODE_GAME_FINISHED) {
         init_for_new_game();
-        mode = GAME_MODE_CHOOSE_PLAYER;
+        set_mode(MODE_TYPE_GAME, MODE_GAME_CHOOSE_PLAYER);
         refresh();
       }
 
       break;
   }
-
-  printf("mode = %d\n", mode);
 
   return FALSE;
 }
@@ -1078,8 +1385,6 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 int
 main(int argc, char *argv[])
 {
-  mode = GAME_MODE_INIT;
-
   srand(time(NULL));
 
   ca_context_create (&cba_ctx_sound);
@@ -1099,7 +1404,7 @@ main(int argc, char *argv[])
 
   g_signal_connect(darea,  "expose-event",       G_CALLBACK(on_expose_event), NULL);
   g_signal_connect(darea,  "button-press-event", G_CALLBACK(clicked), NULL);
-  g_signal_connect(window, "show",             G_CALLBACK(on_window_show), NULL);
+  g_signal_connect(window, "show",               G_CALLBACK(on_window_show), NULL);
   g_signal_connect(window, "key-press-event",    G_CALLBACK(on_key_press), NULL);
   g_signal_connect(window, "destroy",            G_CALLBACK(gtk_main_quit), NULL);
 
