@@ -83,6 +83,7 @@ typedef enum {
 } mode_type_t;
 
 typedef enum {
+  PLAYER_TYPE_NONE,
   PLAYER_TYPE_HUMAN,
   PLAYER_TYPE_COMPUTER,
   PLAYER_TYPE_CNT,
@@ -104,7 +105,6 @@ typedef struct figure_s {
 typedef struct player_s {
   figure_t f[4];
   player_type_t t;
-  int playing;
 } player_t;
 
 typedef struct game_state_s {
@@ -162,7 +162,7 @@ int ractive = 0; // Record / Reload / Replay: 0 = off, 1 = active // Can only se
 game_state_t gs;
 int color_assoc[4] = {0};
 int saved_moves_cnt_max = 0;
-static int last_set_player = -1;
+//static int last_set_player = -1;
 // Fields
 field_t fields[(AREA_DIM - 1) * 4];
 field_t fields_parking[PLAYER_COLOR_CNT][4];
@@ -847,7 +847,7 @@ do_drawing(cairo_t *cr)
 
   // Draw figures
   for(p = 0; p < PLAYER_COLOR_CNT; p++) {
-    if(!gs.player[p].playing)
+    if(gs.player[p].t == PLAYER_TYPE_NONE)
       continue;
 
     for(i = 0; i < 4; i++) {
@@ -868,7 +868,7 @@ do_drawing(cairo_t *cr)
   // Draw figures for choosing player
   if(gs.game_mode == MODE_GAME_CHOOSE_PLAYER) {
     for(p = 0; p < PLAYER_COLOR_CNT; p++) {
-      if(!gs.player[p].playing)
+      if(gs.player[p].t == PLAYER_TYPE_NONE)
         continue;
 
       for(i = 0; i < 4; i++) {
@@ -912,7 +912,7 @@ rotate_player()
 
   for(i = 0; i < 4; i++) {
     gs.cp = (gs.cp + 1) % 4;
-    if(gs.player[gs.cp].playing)
+    if(gs.player[gs.cp].t != PLAYER_TYPE_NONE)
       break;
  }
 
@@ -996,7 +996,7 @@ check_field_occupied(int fi, int *p, int *f, int pi) // Field index, i = gs.play
   int occ = 0;
 
   for(_p = 0; _p < 4; _p++) {
-    if(!gs.player[_p].playing || (pi >= 0 && pi == _p))
+    if(gs.player[_p].t == PLAYER_TYPE_NONE || (pi >= 0 && pi == _p))
       continue;
 
     for(_f = 0; _f < 4; _f++) {
@@ -1037,12 +1037,12 @@ check_player_won()
 
 
 static int
-get_figure_index(int p, int fi)
+get_figure_index(int p, int fi, field_type_t ft)
 {
   int i = 0;
 
   for(i = 0; i < 4; i++) {
-    if(gs.player[p].f[i].i == fi)
+    if(gs.player[p].f[i].i == fi && gs.player[p].f[i].t == ft)
       return i;
   }
 
@@ -1102,7 +1102,7 @@ check_figure_movable()
             fi_ori = fi;
             fi = (gs.player[p].f[f].i + gs.number) % ((AREA_DIM - 1) * 4);
           } else {
-            gs.figure_movable[get_figure_index(gs.cp, fi_ori)] = 1;
+            gs.figure_movable[get_figure_index(gs.cp, fi_ori, FIELD_TYPE_NORMAL)] = 1;
             ret = 1;
             break;
           }
@@ -1211,7 +1211,6 @@ roll()
 
 
 //XXX
-
 /*
 gs.cp = 0;
 gs.number = 1;
@@ -1226,6 +1225,7 @@ gs.player[0].f[3].t = FIELD_TYPE_NORMAL;
 gs.player[0].f[3].i = 39;
 */
 
+  //gs.number = 6;
 
   // Roll three times if there's no other option
   if(gs.force_start_cnt == -1 && force_start())
@@ -1292,9 +1292,9 @@ move(int figure_index)
   }
 
   if(fig->t == FIELD_TYPE_NORMAL) {
-  ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_KickEnemy.ogg", NULL);
+    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_KickEnemy.ogg", NULL);
     if(check_field_occupied(fig->i, &p, &f, gs.cp) == 2) {
-      gs.player[p].f[f].i = get_figure_index(p, fig->i);
+      gs.player[p].f[f].i = get_figure_index(p, fig->i, FIELD_TYPE_NORMAL);
       gs.player[p].f[f].t = FIELD_TYPE_PARKING;
     }
   }
@@ -1403,7 +1403,7 @@ load_state_from_file()
     // Player
     memcpy(gs.color, tgs.color, sizeof(gs.color));
     for(i = 3; i >= 0; i--) {
-      gs.player[i].playing = tgs.player[i].playing;
+      gs.player[i].t = tgs.player[i].t;
       gs.cp = i;
     }
     // Saved moves
@@ -1424,13 +1424,7 @@ load_state_from_file()
 static void
 choose_player(int pi)
 {
-  gs.player[pi].playing = !gs.player[pi].playing;
-  if(gs.player[pi].playing) {
-    gs.player[pi].t = PLAYER_TYPE_HUMAN;
-    last_set_player = pi;
-  } else {
-    last_set_player = -1;
-  }
+  gs.player[pi].t = (gs.player[pi].t + 1) % PLAYER_TYPE_CNT;
   refresh();
 }
 
@@ -1464,16 +1458,6 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
         }
         refresh();
       }
-      break;
-
-    case GDK_c:
-      if(gs.game_mode == MODE_GAME_CHOOSE_PLAYER && last_set_player >= 0) {
-        if(gs.player[last_set_player].t == PLAYER_TYPE_HUMAN)
-          gs.player[last_set_player].t = PLAYER_TYPE_COMPUTER;
-        else
-          gs.player[last_set_player].t = PLAYER_TYPE_HUMAN;
-      }
-      refresh();
       break;
 
     case GDK_KEY_1:
@@ -1512,13 +1496,13 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
           refresh();
         } else {
           for(i = 0; i < 4; i++) {
-            if(gs.player[i].playing)
+            if(gs.player[i].t != PLAYER_TYPE_NONE)
               num_set++;
           }
 
           if(num_set >= 2) {
             for(i = 0; i < 4; i++) {
-              if(gs.player[i].playing) {
+              if(gs.player[i].t != PLAYER_TYPE_NONE) {
                 gs.cp = i;
                 break;
               }
@@ -1565,16 +1549,95 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 
 
 static void
-check_clicked_on(field_type_t ft, int fi, int pi, int x, int y)
+clicked_on(field_type_t ft, int fi, int pi, int figi, int x, int y)
 {
-  printf("%d, %d, %d, %d, %d\n", ft, fi, pi, x, y);
+  int i = 0;
+  figure_t *f = NULL;
+  printf("%d, %d, %d, %d, %d, %d\n", ft, fi, pi, figi, x, y);
 
   if(gs.game_mode == MODE_GAME_CHOOSE_PLAYER) {
     if(ft == FIELD_TYPE_PARKING)
       choose_player(pi);
+  } else if(gs.play_game_mode == MODE_GAME_PLAY_MOVE) {
+    if(pi == gs.cp && figi >= 0) {
+      move(figi); //gs.player[gs.cp].f[figi].i);
+      refresh();
+    }
   }
 }
 
+static void
+check_clicked_on(int x, int y)
+{
+  int i = 0, p = 0;
+  int found = 0;
+  figure_t *fig = NULL;
+
+  for(p = 0; p < 4 && !found; p++) {
+    if(gs.player[p].t != PLAYER_TYPE_NONE) {
+      for(i = 0; i < 4 && !found; i++) {
+        fig = &gs.player[p].f[i];
+
+        switch(fig->t) {
+        case FIELD_TYPE_PARKING:
+          if(fields_parking[p][fig->i].x == x && fields_parking[p][fig->i].y == y) {
+            clicked_on(fig->t, fig->i, p, i, x, y);
+            found = 1;
+          }
+          break;
+
+        case FIELD_TYPE_NORMAL:
+          if(fields[fig->i].x == x && fields[fig->i].y == y) {
+            clicked_on(fig->t, fig->i, p, i, x, y);
+            found = 1;
+          }
+          break;
+
+        case FIELD_TYPE_GOAL:
+          if(fields_goal[p][fig->i].x == x && fields_goal[p][fig->i].y == y) {
+            clicked_on(fig->t, fig->i, p, i, x, y);
+            found = 1;
+          }
+          break;
+
+        case FIELD_TYPE_START:
+        case FIELD_TYPE_CNT:
+          break;
+        }
+      }
+    }
+  }
+
+  if(!found) {
+    // FIELD_TYPE_PARKING:
+    for(p = 0; p < 4 && !found; p++) {
+      for(i = 0; i < 4 && !found; i++) {
+        if(fields_parking[p][i].x == x && fields_parking[p][i].y == y) {
+          clicked_on(FIELD_TYPE_PARKING, i, p, -1, x, y);
+          found = 1;
+        }
+      }
+    }
+
+    // FIELD_TYPE_NORMAL:
+    for(i = 0; i < 4 && !found; i++) {
+      if(fields[i].x == x && fields[i].y == y) {
+        clicked_on(FIELD_TYPE_NORMAL, i, p, -1, x, y);
+        found = 1;
+      }
+    }
+
+    // FIELD_TYPE_GOAL:
+    for(p = 0; p < 4 && !found; p++) {
+      for(i = 0; i < 4 && !found; i++) {
+        if(fields_goal[p][i].x == x && fields_goal[p][i].y == y) {
+          clicked_on(FIELD_TYPE_GOAL, i, p, -1, x, y);
+          found = 1;
+        }
+      }
+    }
+  }
+}
 
 static gboolean
 clicked(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
@@ -1586,74 +1649,9 @@ clicked(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
   figure_t *fig = NULL;
 
   if (event->button == 1) {
-	  //XXX ganzen block hier in fkt auslagern?
     x = event->x /= FIELD_DIM;
     y = event->y /= FIELD_DIM;
-
-    for(p = 0; p < 4 && !found; p++) {
-      if(gs.player[p].playing) {
-        for(i = 0; i < 4 && !found; i++) {
-          fig = &gs.player[p].f[i];
-
-          switch(fig->t) {
-          case FIELD_TYPE_PARKING:
-            if(fields_parking[p][fig->i].x == x && fields_parking[p][fig->i].y == y) {
-              check_clicked_on(fig->t, i, p, x, y);
-              found = 1;
-            }
-            break;
-
-          case FIELD_TYPE_NORMAL:
-            if(fields[fig->i].x == x && fields[fig->i].y == y) {
-              check_clicked_on(fig->t, i, p, x, y);
-              found = 1;
-            }
-            break;
-
-          case FIELD_TYPE_GOAL:
-            if(fields_goal[p][fig->i].x == x && fields_goal[p][fig->i].y == y) {
-              check_clicked_on(fig->t, i, p, x, y);
-              found = 1;
-            }
-            break;
-
-          case FIELD_TYPE_START:
-          case FIELD_TYPE_CNT:
-            break;
-          }
-        }
-      }
-    }
-
-    if(!found) {
-      // FIELD_TYPE_PARKING:
-      for(p = 0; p < 4 && !found; p++) {
-        for(i = 0; i < 4 && !found; i++) {
-          if(fields_parking[p][i].x == x && fields_parking[p][i].y == y) {
-          check_clicked_on(FIELD_TYPE_PARKING, i, p, x, y);
-          found = 1;
-          }
-        }
-      }
-
-      // FIELD_TYPE_NORMAL:
-      for(i = 0; i < 4 && !found; i++) {
-        if(fields[i].x == x && fields[i].y == y) {
-          check_clicked_on(FIELD_TYPE_NORMAL, i, p, x, y);
-          found = 1;
-        }
-      }
-
-      // FIELD_TYPE_GOAL:
-      for(p = 0; p < 4 && !found; p++) {
-        for(i = 0; i < 4 && !found; i++) {
-          if(fields_goal[p][i].x == x && fields_goal[p][i].y == y) {
-            check_clicked_on(FIELD_TYPE_GOAL, i, p, x, y);
-            found = 1;
-          }
-        }
-      }
-	  }
+    check_clicked_on(x, y);
   } else if (event->button == 3) {
     _event.keyval = GDK_KEY_Return;
     on_key_press(widget, &_event, NULL);
@@ -1683,9 +1681,11 @@ main(int argc, char *argv[])
   gtk_container_add(GTK_CONTAINER(window), darea);
 
   gtk_widget_add_events(darea, GDK_BUTTON_PRESS_MASK);
+  gtk_widget_add_events(darea, GDK_BUTTON_RELEASE_MASK);
 
   g_signal_connect(darea,  "expose-event",       G_CALLBACK(on_expose_event), NULL);
-  g_signal_connect(darea,  "button-press-event", G_CALLBACK(clicked), NULL);
+  g_signal_connect(darea,  "button-release-event", G_CALLBACK(clicked), NULL);
+  //g_signal_connect(darea,  "button-press-event", G_CALLBACK(clicked), NULL);
   g_signal_connect(window, "show",               G_CALLBACK(on_window_show), NULL);
   g_signal_connect(window, "key-press-event",    G_CALLBACK(on_key_press), NULL);
   g_signal_connect(window, "destroy",            G_CALLBACK(gtk_main_quit), NULL);
