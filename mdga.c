@@ -894,10 +894,10 @@ do_drawing(cairo_t *cr)
   // Draw text for some cases
   if(gs.game_mode == MODE_GAME_CHOOSE_PLAYER) {
     cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
-    print_centered_text(window, cr, "Spieler auswählen\n(ein-/ausschalten)\ndurch Drücken von 1..4:", FIELD_DIM * 0.5);
+    print_centered_text(window, cr, "Select player\n(toggle on/off)\nby pressing 1..4:", FIELD_DIM * 0.5);
   } else if(gs.game_mode == MODE_GAME_FINISHED) {
     cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 1.0);
-    print_centered_text(window, cr, "Spiel beendet!\n\n Gratulation!", FIELD_DIM * 1.0);
+    print_centered_text(window, cr, "Game finished!\n\n congratulations!", FIELD_DIM * 1.0);
   }
 
   // Record / Reload / Replay info
@@ -1280,7 +1280,7 @@ gs.player[0].f[3].i = 39;
       set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_CHANGE_PLAYER);
   }
 
-  ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Roll.ogg", NULL);
+  ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_Roll.ogg", NULL);
 }
 
 
@@ -1300,25 +1300,25 @@ move(int figure_index)
   if(fig->t == FIELD_TYPE_PARKING) {
     fig->t = FIELD_TYPE_NORMAL;
     fig->i = (AREA_DIM - 1) * gs.cp;
-    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_MoveParkingNormal.ogg", NULL);
+    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_MoveParkingNormal.ogg", NULL);
   } else if(fig->t == FIELD_TYPE_NORMAL) {
     // NORMAL ->
     if(fig->i < (AREA_DIM - 1) * _cp && fig->i + gs.number >= (AREA_DIM - 1) * _cp) { // -> GOAL
       fig->i = (fig->i + gs.number) % ((AREA_DIM - 1) * _cp);
       fig->t = FIELD_TYPE_GOAL;
-      ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_MoveNormalGoal.ogg", NULL);
+      ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_MoveNormalGoal.ogg", NULL);
     } else { // -> NORMAL
       fig->i = (fig->i + gs.number) % ((AREA_DIM - 1) * 4);
-      ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Move.ogg", NULL);
+      ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_Move.ogg", NULL);
     }
   } else if(fig->t == FIELD_TYPE_GOAL) {
     // GOAL ->
     fig->i += gs.number;
-    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Move.ogg", NULL);
+    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_Move.ogg", NULL);
   }
 
   if(fig->t == FIELD_TYPE_NORMAL) {
-    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_KickEnemy.ogg", NULL);
+    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_KickEnemy.ogg", NULL);
     if(check_field_occupied(fig->i, &p, &f, gs.cp) == 2) {
       gs.player[p].f[f].i = get_figure_index(p, fig->i, FIELD_TYPE_NORMAL);
       gs.player[p].f[f].t = FIELD_TYPE_PARKING;
@@ -1333,7 +1333,7 @@ move(int figure_index)
     }
 
     set_mode(MODE_TYPE_GAME, MODE_GAME_FINISHED);
-    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_GameFinished.ogg", NULL);
+    ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_GameFinished.ogg", NULL);
   } else {
    if(gs.number == 6)
       set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
@@ -1353,7 +1353,7 @@ refresh()
 static void
 on_window_show (GtkWidget *widget, gpointer user_data)
 {
-  ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_Splash.ogg", NULL);
+  ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_Splash.ogg", NULL);
 }
 
 
@@ -1458,7 +1458,7 @@ choose_player(int pi)
 gboolean
 on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 {
-  //GdkModifierType modifiers = gtk_accelerator_get_default_mod_mask();;
+  //GdkModifierType modifiers = gtk_accelerator_get_default_mod_mask();
 
   int num = -1;
   int i = 0;
@@ -1480,7 +1480,7 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
         if(ractive == 1) {
           ractive = 0;
           save_state_to_file();
-          printf("Spielstand gespeichert\n");
+          printf("Game saved\n");
         }
         refresh();
       }
@@ -1508,7 +1508,7 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
       if(gs.game_mode == MODE_GAME_CHOOSE_PLAYER) {
         if(gs.rec_mode == MODE_REC_RELOAD || gs.rec_mode == MODE_REC_REPLAY) {
           load_state_from_file();
-          printf("Spielstand geladen\n");
+          printf("Game loaded\n");
           set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
           refresh();
         } else {
@@ -1526,7 +1526,7 @@ on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
             }
             set_mode(MODE_TYPE_GAME_PLAY, MODE_GAME_PLAY_ROLL);
             refresh();
-            ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "SFX_GameStart.ogg", NULL);
+            ca_context_play (cba_ctx_sound, 0, CA_PROP_MEDIA_FILENAME, "sounds/SFX_GameStart.ogg", NULL);
           }
         }
       } else if(gs.play_game_mode == MODE_GAME_PLAY_ROLL) {
@@ -1730,7 +1730,7 @@ main(int argc, char *argv[])
 
   gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
   set_window_size();
-  gtk_window_set_title(GTK_WINDOW(window), "MÄDN für meine zwei liebsten Bibis");
+  gtk_window_set_title(GTK_WINDOW(window), "Man, Don't Get Angry for my two beloved ones (Bibis)");
 
   init_game();
 

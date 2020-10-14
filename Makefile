@@ -1,20 +1,15 @@
-NAME=maedn
+NAME=bibi-mdga
+CC=gcc
 CFLAGS=-g -ggdb -Wall -Wno-unused-function -Wno-unused-but-set-variable -Wno-unused-variable -o $(NAME)
 GTKFLAGS=-export-dynamic `pkg-config --cflags --libs gtk+-2.0 cairo libcanberra`
-SRCS=maedn.c
-CC=gcc
 
-# top-level rule to create the program
-all: tetris
+# Top-level rule to create the program
+all: mdga
 
-# compiling the source file
-tetris: $(SRCS)
-	$(CC) $(CFLAGS) $(SRCS) $(GTKFLAGS)
+# Compiling the source file
+mdga: mdga.c
+	$(CC) $(CFLAGS) $^ $(GTKFLAGS)
 
-#	$(CC) $(CFLAGS) -m32 -o $(NAME)_32 $(SRCS) $(GTKFLAGS)
-
-
-
-# cleaning everything that can be automatically recreated with "make"
+# Cleaning everything that can be automatically recreated with "make"
 clean:
 	/bin/rm -f $(NAME)
